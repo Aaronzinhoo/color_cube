@@ -16,8 +16,9 @@ from shutil import copy
 from PIL import Image
 from pathlib import Path
 
-from ColorCube.colorcube import ColorCube
-from config.args import color_list, get_args, ACCEPTED_IMAGE_EXTENTIONS
+from colorcube.colorcube import ColorCube
+from config.args import get_args
+from config.constants import color_list, ACCEPTED_IMAGE_EXTENTIONS
 from utils.color_functions import *
 from crop.imagecrop import ImageCrop
 
