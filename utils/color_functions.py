@@ -1,80 +1,33 @@
 import cv2
 import math
 import numpy as np
+from enum import IntEnum
+from pathlib import Path
 
 
-def get_largest_bbox(image):
-    """
-    returns cropped image that fits largest contour found
-    """
-    img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    img_mask = cv2.inRange(img_gray, 1, 255)
-    contours, _ = cv2.findContours(img_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    contour_sizes = [(cv2.contourArea(contour), contour) for contour in contours]
-    biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
-    x, y, w, h = cv2.boundingRect(biggest_contour)
-    return image[y:y+h, x:x+w, :]
-
-def iterative_twoside_crop(image, iterator=1, min_crop=(80, 80), boundary_thresh=0.1):
-    """
-    Crop image by iteratively cropping 2 sides at a time (left or right side and top or bottom side)
-        Until the image size == min_crop or threshold of black pixels is met 
-            for each pair of sides, choose:
-            - side with largest amount of black pixels
-            - crop this side out
-            check if we made a crop:
-            - if crop made, rerun the loop
-            - else break and return image cropped at the new dimensions
-    Args:
-        image: image in form of nd.array
-        iterator: size of crop made on given side
-        min_crop: minimum size image can be cropped to
-        boundary_thresh: percentage of black pixels allowed on boundary of new cropped image
-    """
-    assert isinstance(min_crop, (int, list, tuple)),"min_crop must be a int value or list"
-    if isinstance(min_crop, int):
-        temp = min_crop
-        min_crop = [temp, temp]    
-    img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    img_gray = cv2.GaussianBlur(img_gray, (5, 5), 0)
-    y_lim, x_lim = image.shape[0], image.shape[1]
-    x_top, y_top = 0, 0
-    y_bot, x_bot = y_lim-1, x_lim-1
-    min_rectangle = False
-    cropped=False
-    while not min_rectangle:
-        # and top_row > bp_threshold*x_top-x_bot applies black pixel threshold
-        top_row = np.sum(img_gray[y_top, x_top:x_bot] == 0)
-        bot_row = np.sum(img_gray[y_bot, x_top:x_bot] == 0)
-        left_col = np.sum(img_gray[y_top:y_bot, x_top] == 0)
-        right_col = np.sum(img_gray[y_top:y_bot, x_bot] == 0)
-        row_index = np.argmax([top_row, bot_row])
-        col_index = np.argmax([left_col, right_col])
-        
-        if not (y_bot-y_top-1 <= min_crop[0] or boundary_thresh*(x_bot-x_top) >= top_row) and row_index == 0:
-            # print("increasing top_row")
-            y_top += iterator
-            cropped = True
-        if not (y_bot-y_top-1 <= min_crop[0] or boundary_thresh*(x_bot-x_top) >= bot_row) and row_index == 1:
-            # print("decreasing bot row")
-            y_bot -= iterator
-            cropped = True
-        if not (x_bot-x_top-1 <= min_crop[1] or boundary_thresh*(y_bot-y_top) >= left_col) and col_index == 0:
-            # print("increasing left col")
-            x_top += iterator
-            cropped = True
-        if not (x_bot-x_top-1 <= min_crop[1] or boundary_thresh*(y_bot-y_top) >= right_col) and col_index == 1:
-            # print("decreasing right col")
-            x_bot -= iterator
-            cropped = True
-        if cropped:
-            cropped = False
-        else:
-            min_rectangle = True
-    return image[y_top:y_bot, x_top:x_bot, :]
+class AchromaticColorIndex(IntEnum):
+    Black = 144
+    White = 145
+    LightGray = 146
+    DarkGrey = 147
 
 
-def get_color_index(colors, color_list):
+def make_color_dir_heirarchy(output_dir, color_list):
+    """ create the directory of color dirs for images to be placed in"""
+    root_dir = Path(output_dir)
+    for color in color_list:
+        (root_dir / color[0]).mkdir(parents=True, exist_ok=True)
+
+
+def is_color_gray(color, min_distance=10):
+    return (
+        abs(color[0] - color[1]) < min_distance
+        and abs(color[0] - color[2]) < min_distance
+        and abs(color[1] - color[2]) < min_distance
+    )
+
+
+def get_nearest_color(colors, color_list, top_k_colors=1):
     """
     Given A set of colors, return the index of closest munsell color
         If colors is empty return None
@@ -83,47 +36,58 @@ def get_color_index(colors, color_list):
             Assign color and return
         Closest found by comparing distances in RGB color space
     """
-    min_distance = 100000000000
+    color_name = ""
     min_index = None
-
+    # check only the top color since rest are irrelevant (may change later if improved)
     # Print first four colors (there might be much more)
     # check if the color is either white, black, light grey or dark grey
     # if it is, then skip checking munsell colors and add this image to the dir
-    for c in colors[:1]:
-        # do something special for white or black
-        if c[0] > 240 and c[1] > 240 and c[2] > 240:
-            min_index = 145
-            break
-        # munsell colors dont account for colors that have all rgb values < 35
-        elif c[0] <= 35 and c[1] <= 35 and c[2] <= 35:
-            min_index = 144
-            break
-        # dark grey
-        elif c[0] < 230 and c[1] < 230 and c[2] < 230 and c[0] > 168 and c[1] > 168 and c[2] > 168:
-            if abs(c[0]-c[1]) < 10 and abs(c[0]-c[2]) < 10 and abs(c[1]-c[2]) < 10:
-                min_index = 146
-                break
+    for color in colors[:top_k_colors]:
+        # check black
+        if color[0] <= 35 and color[1] <= 35 and color[2] <= 35:
+            min_index = AchromaticColorIndex.Black
+        # check white
+        elif color[0] > 240 and color[1] > 240 and color[2] > 240:
+            min_index = AchromaticColorIndex.White
+        # check light grey
+        elif (
+            color[0] < 230
+            and color[1] < 230
+            and color[2] < 230
+            and color[0] > 168
+            and color[1] > 168
+            and color[2] > 168
+        ):
+            if is_color_gray(color):
+                min_index = AchromaticColorIndex.LightGray
 
-        # light grey
-        elif c[0] < 132 and c[1] < 132 and c[2] < 132 and c[0] > 60 and c[1] > 60 and c[2] > 60:
-            if abs(c[0]-c[1]) < 10 and abs(c[0]-c[2]) < 10 and abs(c[1]-c[2]) < 10:
-                min_index = 147
-                break
+        # check dark grey
+        elif (
+            color[0] < 132
+            and color[1] < 132
+            and color[2] < 132
+            and color[0] > 60
+            and color[1] > 60
+            and color[2] > 60
+        ):
+            if is_color_gray(color):
+                min_index = AchromaticColorIndex.DarkGrey
 
-        # if not generic black, white, light/dark grey
-        # find closest color group
-        for i in range(0, len(color_list)-2):
-            a = np.array((c[0], c[1], c[2]))
-            b = np.array((int(color_list[i][1]), int(
-                color_list[i][2]), int(color_list[i][3])))
-
-            r_delta = a[0] - b[0]
-            g_delta = a[1] - b[1]
-            b_delta = a[2] - b[2]
-            # Compute delta in color space distance
-            distance = math.sqrt(r_delta**2 + g_delta**2 + b_delta**2)
-
-            if min_distance > distance:
-                min_distance = distance
-                min_index = i
-    return min_index
+        if not min_index:
+            # if not generic black, white, light/dark grey
+            # find closest color group
+            distances = []
+            color = np.array((color[0], color[1], color[2]))
+            # i do not exactly remember why -2.. regardless grays are not included
+            # this means black and white can still be attributed if they are not assigned
+            # above
+            for pccs_color in color_list[:-2]:
+                # index 0 is the name of the color
+                pccs_color = np.array(
+                    (int(pccs_color[1]), int(pccs_color[2]), int(pccs_color[3]))
+                )
+                distances.append(np.linalg.norm(color - pccs_color))
+            min_index = np.argmin(distances)
+    if min_index is not None:
+        color_name = color_list[min_index][0]
+    return color_name
