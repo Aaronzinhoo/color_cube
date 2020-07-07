@@ -4,7 +4,6 @@ from PIL import Image
 from pathlib import Path
 
 from colorcube.colorcube import ColorCube
-from config.args import get_args
 from config.constants import color_list, ACCEPTED_IMAGE_EXTENTIONS
 from utils.color_functions import *
 from crop.imagecrop import ImageCrop
@@ -58,20 +57,12 @@ def main(input_dir, output_dir, crop, min_side_length, image_resize):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Color Classify Images")
-    parser.add_argument("input_dir", type=str, help="dir containing images")
+    parser.add_argument("--input_dir", type=str, help="dir containing images")
     parser.add_argument(
-        "output_dir",
+        "--output_dir",
         default="./colors",
         type=str,
         help="location of dir to contain color category sperated images",
-    )
-    parser.add_argument(
-        "--orig_dir",
-        default=None,
-        help='dir to contain original (un-segregated) images, if left as "" then an original image dir is not created',
-    )
-    parser.add_argument(
-        "--delete", action="store_true", help="delete files in input after analysis"
     )
     parser.add_argument(
         "--crop",

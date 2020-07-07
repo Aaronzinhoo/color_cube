@@ -1,7 +1,5 @@
 import argparse
 
-root = Path(__file__).resolve().parent.parent
-
 
 def get_args():
     parser = argparse.ArgumentParser(description="Color Classify Images")
